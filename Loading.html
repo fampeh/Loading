@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8" />
+<title>Fast Red Snap Loader - Extreme Struggle</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    background: #050505;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+  }
+  svg {
+    width: 280px;
+    height: 280px;
+    filter: drop-shadow(0 0 12px rgba(255, 0, 0, 0.7));
+  }
+  #track {
+    stroke: #1a0505;
+    stroke-width: 8;
+    fill: none;
+  }
+  #elastic-line {
+    fill: none;
+    stroke: #ff0000;
+    stroke-width: 12;
+    stroke-linecap: round;
+    transition: none;
+    will-change: transform, stroke-dasharray, stroke-dashoffset;
+  }
+</style>
+</head>
+<body>
+
+<svg viewBox="0 0 100 100">
+  <circle id="track" cx="50" cy="50" r="40" />
+  <circle id="elastic-line" cx="50" cy="50" r="40" transform-origin="center" />
+</svg>
+
+<script>
+  const CONFIG = {
+    tensionDuration: 2800,
+    releaseDuration: 1800,
+    elasticity: 1.5,
+    gapSize: 0.92,
+    
+    // --- PHYSICS CONFIG (تغییرات اصلی اینجا هستند) ---
+    resistanceWall: 0.75, 
+    postWallGain: 0.08, 
+
+    // شدت لرزش را به طور قابل توجهی افزایش دادیم
+    shakeAmplitude: 0.08, // قبلاً 0.015 بود
+    
+    // میزان لیز خوردن به عقب در لحظه آخر را عمیق‌تر کردیم
+    failureDepth: 0.1,    // قبلاً 0.02 بود
+    
+    pauseBetween: 150,
+    minSnapJump: 120,
+    maxSnapJump: 360,
+    minCollapseSeparation: 65
+  };
+
+  const circle = document.getElementById("elastic-line");
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius;
+  const baseLengthMax = 0.12;
+  
+  let baseLength = circumference * baseLengthMax;
+  let globalRotation = Math.random() * 360;
+  let lastTensionLength = baseLength;
+  let recentCollapseAngles = [];
+
+  circle.style.strokeDasharray = `${baseLength} ${circumference}`;
+
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+  // Simulates organic muscular struggle - VIOLENT VERSION
+  const easeInResistedTension = (x) => {
+    // 1. THE PUSH (مانند قبل)
+    let position;
+    if (x < CONFIG.resistanceWall) {
+        position = (x / CONFIG.resistanceWall) * 0.85; 
+    } else {
+        const progressInStruggle = (x - CONFIG.resistanceWall) / (1 - CONFIG.resistanceWall);
+        position = 0.85 + (Math.log10(1 + progressInStruggle * 9) * CONFIG.postWallGain);
+    }
+
+    // 2. THE TREMOR (بسیار شدیدتر)
+    // خستگی (Fatigue) سریع‌تر و شدیدتر رشد می‌کند (توان 5)
+    const fatigue = Math.pow(x, 5); 
+    
+    // لرزش‌های ریز عصبی (Jitter)
+    const nervousTwitch = (Math.sin(x * 157.9) + Math.cos(x * 83.3)) * 0.5;
+
+    // اضافه کردن یک "تکان شدید" (Heave) با فرکانس پایین‌تر در اواخر کار
+    // این شبیه زور زدن با تمام بدن است که باعث بی‌ثباتی بزرگ می‌شود
+    let violentHeave = 0;
+    if (x > 0.8) {
+        violentHeave = Math.sin(x * 35) * Math.pow((x - 0.8)/0.2, 2) * 2.5;
+    }
+    
+    // ترکیب لرزش‌ها
+    const currentShake = (nervousTwitch + violentHeave) 
+                         * CONFIG.shakeAmplitude 
+                         * fatigue;
+
+    // 3. THE FAILURE (لغزش عمیق نهایی)
+    // در 5 درصد آخر، به شدت به عقب لیز می‌خورد
+    let failurePull = 0;
+    if (x > 0.95) {
+        // استفاده از توان 4 برای شیب بسیار تندتر در لحظه آخر
+        const failureProgress = (x - 0.95) / 0.05;
+        failurePull = Math.pow(failureProgress, 4) * CONFIG.failureDepth;
+    }
+
+    // Combine and Clamp:
+    // سقف را کمی بالاتر بردیم (0.985) تا فضا برای لرزش‌های شدید باشد
+    // اما کف را هم محدود کردیم تا خیلی به عقب برنگردد
+    let finalPos = position + currentShake - failurePull;
+    return Math.min(0.985, Math.max(position - 0.08, finalPos));
+  };
+  
+  // --- بقیه کد بدون تغییر باقی مانده است ---
+  const easeOutElastic = (x) => {
+    const c4 = (2 * Math.PI) / (3 * CONFIG.elasticity);
+    return x === 0 ? 0 : x === 1 ? 1
+      : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
+  };
+
+  const normalizeAngle = (deg) => ((deg % 360) + 360) % 360;
+
+  const angleDistance = (a, b) => {
+    const diff = Math.abs(a - b);
+    return Math.min(diff, 360 - diff);
+  };
+
+  function pickSnapJump(startRot) {
+    const minJump = CONFIG.minSnapJump;
+    const maxJump = CONFIG.maxSnapJump;
+    const startAngle = normalizeAngle(startRot);
+    const jumpRange = maxJump - minJump;
+
+    let bestJump = minJump + Math.random() * jumpRange;
+    let bestScore = -1;
+
+    for (let i = 0; i < 24; i++) {
+      const jump = minJump + Math.random() * jumpRange;
+      const targetAngle = normalizeAngle(startAngle + jump);
+      const score = recentCollapseAngles.length === 0
+        ? 360
+        : Math.min(...recentCollapseAngles.map((a) => angleDistance(targetAngle, a)));
+
+      if (score >= CONFIG.minCollapseSeparation) {
+        return { jump, targetAngle };
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestJump = jump;
+      }
+    }
+
+    return {
+      jump: bestJump,
+      targetAngle: normalizeAngle(startAngle + bestJump)
+    };
+  }
+
+  function animate({ duration, draw, timing, onComplete }) {
+    let start = performance.now();
+    requestAnimationFrame(function frame(time) {
+      let timeFraction = (time - start) / duration;
+      if (timeFraction > 1) timeFraction = 1;
+      const progress = timing(timeFraction);
+      draw(progress);
+      if (timeFraction < 1) {
+        requestAnimationFrame(frame);
+      } else if (onComplete) {
+        onComplete();
+      }
+    });
+  }
+
+  function startCycle() {
+    const isTwoSided = Math.random() > 0.5;
+    const tensionRotation = 40 + Math.random() * 40;
+    const startRot = globalRotation;
+    const targetLength = circumference * CONFIG.gapSize;
+
+    animate({
+      duration: CONFIG.tensionDuration,
+      timing: easeInResistedTension,
+      draw: (progress) => {
+        const currentLength = baseLength + (targetLength - baseLength) * progress;
+        lastTensionLength = currentLength;
+        circle.style.strokeDasharray = `${currentLength} ${circumference}`;
+        
+        if (isTwoSided) {
+          circle.style.strokeDashoffset = -(currentLength - baseLength) / 2;
+        } else {
+          circle.style.strokeDashoffset = 0;
+        }
+
+        const curRot = startRot + (tensionRotation * progress);
+        circle.style.transform = `rotate(${curRot}deg)`;
+        globalRotation = curRot;
+      },
+      onComplete: () => startSnap(isTwoSided, lastTensionLength)
+    });
+  }
+
+  function startSnap(isTwoSided, stretchedLength = circumference * CONFIG.gapSize) {
+    const startRot = globalRotation;
+    const { jump: snapJump, targetAngle } = pickSnapJump(startRot);
+    const nextBaseLength = circumference * (Math.random() * baseLengthMax);
+
+    animate({
+      duration: CONFIG.releaseDuration,
+      timing: easeOutElastic,
+      draw: (progress) => {
+        const factor = 1 - progress;
+        let currentLength = nextBaseLength + (stretchedLength - nextBaseLength) * factor;
+        currentLength = Math.max(2, currentLength);
+        
+        circle.style.strokeDasharray = `${currentLength} ${circumference}`;
+        
+        if (isTwoSided) {
+          const baseAtProgress = baseLength + (nextBaseLength - baseLength) * progress;
+          circle.style.strokeDashoffset = -(currentLength - baseAtProgress) / 2;
+        } else {
+          circle.style.strokeDashoffset = 0;
+        }
+
+        const curRot = startRot + (snapJump * progress);
+        circle.style.transform = `rotate(${curRot}deg)`;
+        globalRotation = curRot;
+      },
+      onComplete: () => {
+        baseLength = nextBaseLength;
+        recentCollapseAngles.push(targetAngle);
+        if (recentCollapseAngles.length > 3) {
+          recentCollapseAngles.shift();
+        }
+        setTimeout(startCycle, CONFIG.pauseBetween);
+      }
+    });
+  }
+
+  startCycle();
+</script>
+</body>
+</html>
